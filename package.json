@@ -1,0 +1,11 @@
+{
+  "name": "react-wasm",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Roman Schejbal <schejbalroman@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "parcel": "^2.0.0-beta.2",
+    "serve": "^11.3.2"
+  }
+}
