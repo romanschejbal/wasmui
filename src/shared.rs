@@ -1,4 +1,9 @@
-pub type ReactNodeList = Vec<usize>;
+pub enum ReactNodeList {
+    FunctionComponent,
+    HostElement(&'static str),
+    List(Vec<ReactNodeList>),
+}
+
 pub trait RootType {
-    fn render(&mut self, children: ReactNodeList) {}
+    fn render(&self, children: ReactNodeList) {}
 }

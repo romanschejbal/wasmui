@@ -1,21 +1,27 @@
-use crate::reconciler::update_container;
-
-use super::reconciler::{create_fiber_root, internal::types::FiberRoot};
-use super::shared::{ReactNodeList, RootType};
+use super::{
+    shared::{ReactNodeList, RootType},
+    utils::RequestIdleCallback,
+};
+use crate::{log, reconciler};
+use std::rc::Rc;
 use web_sys::Element;
 
 struct ReactDOMRoot {
-    root: FiberRoot,
+    root: Rc<reconciler::internal::types::FiberRoot>,
 }
 
 impl RootType for ReactDOMRoot {
-    fn render(&mut self, children: ReactNodeList) {
-        update_container(children, &mut self.root);
+    fn render(&self, children: ReactNodeList) {
+        let root = self.root.clone();
+        let ric = RequestIdleCallback::new(Box::new(move || {
+            log(&format!("Current {:?}", root.current));
+        }));
+        ric.start();
     }
 }
 
 pub fn create_root(container: Element) -> Box<dyn RootType> {
     Box::new(ReactDOMRoot {
-        root: create_fiber_root(container),
+        root: Rc::new(reconciler::create_root_fiber(container)),
     })
 }
