@@ -1,20 +1,19 @@
-use std::{
-    cell::{Ref, RefCell},
-    rc::Rc,
-};
+use std::{cell::RefCell, rc::Rc};
 use web_sys::Element;
 
 #[derive(Debug, PartialEq)]
 pub enum ReactNodeList<'a> {
     List(Vec<&'a ReactNodeList<'a>>),
     Element(&'a str, Option<&'a ReactNodeList<'a>>),
-    Text(&'a str), // FunctionComponent(Box<dyn Fn()>),
+    Text(&'a str),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FiberNode<'a> {
     element: Option<&'a ReactNodeList<'a>>,
     child: Option<Rc<RefCell<FiberNode<'a>>>>,
+    sibling: Option<Rc<RefCell<FiberNode<'a>>>>,
+    return_: Option<Rc<RefCell<FiberNode<'a>>>>,
 }
 
 impl<'a> FiberNode<'a> {
@@ -22,6 +21,8 @@ impl<'a> FiberNode<'a> {
         Self {
             element: None,
             child: None,
+            sibling: None,
+            return_: None,
         }
     }
 
@@ -29,11 +30,21 @@ impl<'a> FiberNode<'a> {
         Self {
             element: Some(element),
             child: None,
+            sibling: None,
+            return_: None,
         }
     }
 
     fn set_child(&mut self, child: Rc<RefCell<FiberNode<'a>>>) {
         self.child = Some(child);
+    }
+
+    fn set_sibling(&mut self, sibling: Rc<RefCell<FiberNode<'a>>>) {
+        self.sibling = Some(sibling);
+    }
+
+    fn set_return(&mut self, return_: Rc<RefCell<FiberNode<'a>>>) {
+        self.return_ = Some(return_);
     }
 }
 
@@ -68,6 +79,9 @@ fn create_fiber<'a>(
     match children {
         Element(_, child) => {
             let fiber = Rc::new(RefCell::new(FiberNode::new_with_element(children)));
+            if let Some(return_) = return_ {
+                fiber.borrow_mut().set_return(return_);
+            }
             child
                 .as_ref()
                 .map(|child| create_fiber(child, Some(fiber.clone())))
@@ -77,17 +91,28 @@ fn create_fiber<'a>(
         }
         List(children) => {
             let mut first = None;
-            let mut previous_sibling = return_;
+            let mut previous_sibling = None;
             for child in children.into_iter() {
-                let next = create_fiber(*child, previous_sibling);
-                previous_sibling = next.clone();
+                let next = create_fiber(*child, return_.clone());
                 if first.is_none() {
-                    first = next;
+                    first = next.clone();
                 }
+                previous_sibling.map(|prev: Rc<RefCell<FiberNode>>| {
+                    if next.is_some() {
+                        prev.borrow_mut().set_sibling(next.clone().unwrap())
+                    }
+                });
+                previous_sibling = next;
             }
             first
         }
-        Text(_) => Some(Rc::new(RefCell::new(FiberNode::new_with_element(children)))),
+        Text(_) => {
+            let fiber = Rc::new(RefCell::new(FiberNode::new_with_element(children)));
+            if let Some(return_) = return_ {
+                fiber.borrow_mut().set_return(return_);
+            }
+            Some(fiber)
+        }
         _ => None,
     }
 }
@@ -112,19 +137,31 @@ mod tests {
         let ahoj_fiber = Rc::new(RefCell::new(FiberNode {
             element: Some(&ahoj_element),
             child: None,
+            sibling: None,
+            return_: None,
+        }));
+        let empty_span_fiber = Rc::new(RefCell::new(FiberNode {
+            element: Some(&empty_span_element),
+            child: None,
+            sibling: None,
+            return_: None,
         }));
         let span_fiber = Rc::new(RefCell::new(FiberNode {
             element: Some(&span_element),
             child: Some(ahoj_fiber.clone()),
+            sibling: Some(empty_span_fiber.clone()),
+            return_: None,
         }));
-        // let empty_span_fiber = Rc::new(RefCell::new(FiberNode {
-        //     element: Some(&span_element),
-        //     child: None,
-        // }));
         let div_fiber = Rc::new(RefCell::new(FiberNode {
             element: Some(&div_element),
             child: Some(span_fiber.clone()),
+            sibling: None,
+            return_: None,
         }));
+
+        ahoj_fiber.borrow_mut().set_return(span_fiber.clone());
+        span_fiber.borrow_mut().set_return(div_fiber.clone());
+        empty_span_fiber.borrow_mut().set_return(div_fiber.clone());
 
         assert_eq!(fiber, Some(div_fiber));
     }
