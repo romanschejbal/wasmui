@@ -1,19 +1,29 @@
 use std::{cell::RefCell, rc::Rc};
 use web_sys::Element;
 
-#[derive(Debug, PartialEq)]
+pub trait FunctionComponentT: std::fmt::Debug {
+    fn render(&self) -> ReactNodeList;
+}
+
+#[derive(Debug)]
 pub enum ReactNodeList<'a> {
     List(Vec<&'a ReactNodeList<'a>>),
     Element(&'a str, Option<&'a ReactNodeList<'a>>),
     Text(&'a str),
+    FunctionComponent(Box<dyn FunctionComponentT>),
 }
 
-#[derive(Debug, PartialEq)]
 pub struct FiberNode<'a> {
     element: Option<&'a ReactNodeList<'a>>,
     child: Option<Rc<RefCell<FiberNode<'a>>>>,
     sibling: Option<Rc<RefCell<FiberNode<'a>>>>,
     return_: Option<Rc<RefCell<FiberNode<'a>>>>,
+}
+
+impl std::fmt::Debug for FiberNode<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:#?}", self.element))
+    }
 }
 
 impl<'a> FiberNode<'a> {
@@ -62,7 +72,8 @@ impl<'a> FiberRootNode<'a> {
     }
 
     pub fn render(&mut self, children: ReactNodeList) {
-        let _wip = create_fiber(&children, None);
+        let wip = create_fiber(&children, None);
+        super::log(&format!("{:?}", wip));
     }
 }
 
@@ -163,6 +174,6 @@ mod tests {
         span_fiber.borrow_mut().set_return(div_fiber.clone());
         empty_span_fiber.borrow_mut().set_return(div_fiber.clone());
 
-        assert_eq!(fiber, Some(div_fiber));
+        assert_eq!(format!("{:?}", fiber), format!("{:?}", Some(div_fiber)));
     }
 }
