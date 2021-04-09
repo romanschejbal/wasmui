@@ -2,8 +2,8 @@ mod react;
 mod utils;
 
 use macros::component;
-use react::FunctionComponentTrait;
 use react::ReactNodeList::*;
+use react::{FunctionComponentTrait, ReactNodeList};
 use wasm_bindgen::prelude::*;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -43,12 +43,12 @@ pub fn run() -> Result<(), JsValue> {
     let document = window.document().expect("should have a document on window");
     let body = document.body().expect("document should have a body");
 
-    let root = react::create_root(body.into());
+    let mut root = react::create_root(body.into());
     root.render(&Host(
         "div",
         Some(Box::new(List(vec![
-            Host("span", Some(Box::new(Text("Hello")))),
-            Host("span", Some(Box::new(Text("World")))),
+            Host("span", Some(Box::new(Text("Hello World")))),
+            Host("span", Some(Box::new(Text("From React in WASM")))),
             FunctionComponent(Box::new(Header { title: "Hergooot" })),
         ]))),
     ));
