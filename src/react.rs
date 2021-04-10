@@ -1,4 +1,4 @@
-use std::{boxed, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 use web_sys::{Element, Node};
 
 pub fn create_root<'a>(container: Element) -> FiberRootNode<'a> {
@@ -6,12 +6,15 @@ pub fn create_root<'a>(container: Element) -> FiberRootNode<'a> {
 }
 
 pub trait FunctionComponentTrait: std::fmt::Debug {
-    fn render(&self) -> ReactNodeList;
+    // fn get_children(&self) -> &ReactNodeList;
+    // fn set_children<'a>(&mut self, children: ReactNodeList<'a>);
+    // fn init(&mut self);
+    fn render(&mut self) -> &ReactNodeList;
 }
 
 #[derive(Debug)]
 pub enum ReactNodeList<'a> {
-    Root,
+    Root(Box<ReactNodeList<'a>>),
     List(Vec<ReactNodeList<'a>>),
     Host(&'a str, Option<Box<ReactNodeList<'a>>>),
     Text(&'a str),
@@ -22,7 +25,7 @@ impl ReactNodeList<'_> {
     fn get_name(&self) -> String {
         use ReactNodeList::*;
         match self {
-            Root => "ROOT".into(),
+            Root(_) => "ROOT".into(),
             Host(name, _) => format!("{} (host)", name.to_string()),
             Text(content) => format!("{} (text)", content),
             FunctionComponent(_) => "FunctionComponent".into(),
@@ -65,7 +68,7 @@ impl<'a> FiberNode<'a> {
     }
 }
 pub struct FiberRootNode<'a> {
-    element: ReactNodeList<'a>,
+    element: Option<ReactNodeList<'a>>,
     dom: Option<Element>,
     wip: Option<Fiber<'a>>,
 }
@@ -74,22 +77,19 @@ impl<'a> FiberRootNode<'a> {
     fn new(dom: Element) -> Self {
         Self {
             dom: Some(dom),
-            element: ReactNodeList::Root,
+            element: None,
             wip: None,
         }
     }
 
-    pub fn render(&'a mut self, children: &'a ReactNodeList<'a>) {
-        let fiber = Rc::new(RefCell::new(FiberNode::new(children)));
+    pub fn render(&'a mut self, children: ReactNodeList<'a>) {
+        self.element = Some(ReactNodeList::Root(Box::new(children)));
 
-        let mut root_fiber = FiberNode::new(&self.element);
+        let mut root_fiber = FiberNode::new(self.element.as_ref().unwrap());
         root_fiber.dom = Some(self.dom.take().unwrap().into());
-        root_fiber.child = Some(fiber.clone());
 
         let boxed_root_fiber = Rc::new(RefCell::new(root_fiber));
         self.wip = Some(boxed_root_fiber.clone());
-
-        fiber.borrow_mut().parent = Some(boxed_root_fiber.clone());
 
         let mut next_unit_of_work = Some(boxed_root_fiber.clone());
         while let Some(next) = next_unit_of_work {
@@ -128,6 +128,10 @@ fn perform_unit_of_work<'a>(fiber: Fiber<'a>) -> Option<Fiber<'a>> {
 
         super::log(&format!("PERFORM: {}", fiber_mut.element.get_name()));
         match fiber_mut.element {
+            Root(children) => {
+                drop(fiber_mut);
+                reconcile_children(fiber.clone(), children);
+            }
             Host(tag, children) => {
                 if fiber_mut.dom.is_none() {
                     fiber_mut.dom = Some(create_dom(tag));
@@ -147,8 +151,8 @@ fn perform_unit_of_work<'a>(fiber: Fiber<'a>) -> Option<Fiber<'a>> {
                 fiber_mut.dom = Some(create_text(txt));
             }
             FunctionComponent(component) => {
-                let children = component.render();
-                // reconcile_children(fiber.clone(), &children);
+                // fiber_mut.element = component.render();
+                // reconcile_children(fiber.clone(), component.render());
             }
             _ => (),
         }
@@ -245,57 +249,8 @@ fn commit_work(fiber: Fiber) {
         .map(|f| commit_work(f.clone()));
 }
 
-#[cfg(test)]
-mod tests {
-    // use super::{ReactNodeList::*, *};
-    // use pretty_assertions::assert_eq;
-
-    // #[test]
-    // fn test_create_fiber() {
-    //     let ahoj_element = Text("Ahoj");
-    //     let span_element = Element("span", Some(ahoj_element));
-    //     let empty_span_element = Element("span", None);
-    //     let spans = List(vec![span_element, &empty_span_element]);
-    //     let div_element = Element("div", Some(&spans));
-
-    //     let fiber = create_fiber(&div_element, None);
-
-    //     let ahoj_fiber = Rc::new(RefCell::new(FiberNode {
-    //         element: Some(&ahoj_element),
-    //         child: None,
-    //         sibling: None,
-    //         return_: None,
-    //     }));
-    //     let empty_span_fiber = Rc::new(RefCell::new(FiberNode {
-    //         element: Some(&empty_span_element),
-    //         child: None,
-    //         sibling: None,
-    //         return_: None,
-    //     }));
-    //     let span_fiber = Rc::new(RefCell::new(FiberNode {
-    //         element: Some(&span_element),
-    //         child: Some(ahoj_fiber.clone()),
-    //         sibling: Some(empty_span_fiber.clone()),
-    //         return_: None,
-    //     }));
-    //     let div_fiber = Rc::new(RefCell::new(FiberNode {
-    //         element: Some(&div_element),
-    //         child: Some(span_fiber.clone()),
-    //         sibling: None,
-    //         return_: None,
-    //     }));
-
-    //     ahoj_fiber.borrow_mut().set_return(span_fiber.clone());
-    //     span_fiber.borrow_mut().set_return(div_fiber.clone());
-    //     empty_span_fiber.borrow_mut().set_return(div_fiber.clone());
-
-    //     assert_eq!(format!("{:?}", fiber), format!("{:?}", Some(div_fiber)));
-    // }
-}
-
 impl std::fmt::Debug for FiberNode<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ReactNodeList::*;
         f.write_fmt(format_args!(
             "{{\n  child: {:#?}\n  sibling: {:#?}\n  dom: {:#?}\n}}",
             self.child,

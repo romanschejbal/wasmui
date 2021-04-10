@@ -1,6 +1,8 @@
 mod react;
 mod utils;
 
+use std::{cell::RefCell, rc::Rc};
+
 use macros::component;
 use react::ReactNodeList::*;
 use react::{FunctionComponentTrait, ReactNodeList};
@@ -21,18 +23,34 @@ extern "C" {
 }
 
 #[component]
-fn Header_(title: &str) {
-    Text(title);
+fn Header(title: &str) {
+    // let (state, setState) = hooks.useState(None);
+    // ...
 }
 
 #[derive(Debug)]
 struct Header<'a> {
     title: &'a str,
+    _children: Option<ReactNodeList<'a>>,
 }
 
 impl<'a> react::FunctionComponentTrait for Header<'a> {
-    fn render(&self) -> react::ReactNodeList {
-        List(vec![Text("You said: "), Text(self.title)])
+    // fn get_children(&self) -> &ReactNodeList {
+    //     self._children
+    //         .as_ref()
+    //         .expect("No children set for component instance")
+    // }
+
+    // fn set_children(&mut self, children: ReactNodeList<'a>) {
+    // self._children = Some(children);
+    // }
+    // fn init(&mut self) {
+    // self._children = Some(self.render());
+    // }
+
+    fn render(&mut self) -> &react::ReactNodeList<'a> {
+        self._children = Some(List(vec![Text("You said: "), Text(self.title)]));
+        self._children.as_ref().unwrap()
     }
 }
 
@@ -44,12 +62,21 @@ pub fn run() -> Result<(), JsValue> {
     let body = document.body().expect("document should have a body");
 
     let mut root = react::create_root(body.into());
-    root.render(&Host(
+    root.render(Host(
         "div",
         Some(Box::new(List(vec![
-            Host("span", Some(Box::new(Text("Hello World")))),
-            Host("span", Some(Box::new(Text("From React in WASM")))),
-            FunctionComponent(Box::new(Header { title: "Hergooot" })),
+            Host(
+                "div",
+                Some(Box::new(List(vec![Host(
+                    "h1",
+                    Some(Box::new(Text("Hello World"))),
+                )]))),
+            ),
+            Host("p", Some(Box::new(Text("From React in WASM")))),
+            FunctionComponent(Box::new(Header {
+                title: "Hergooot",
+                _children: None,
+            })),
         ]))),
     ));
     Ok(())
