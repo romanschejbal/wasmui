@@ -22,35 +22,37 @@ extern "C" {
     fn log(s: &str);
 }
 
-#[component]
-fn Header(title: &str) {
-    // let (state, setState) = hooks.useState(None);
-    // ...
-}
-
 #[derive(Debug)]
 struct Header<'a> {
     title: &'a str,
-    _children: Option<ReactNodeList<'a>>,
 }
 
 impl<'a> react::FunctionComponentTrait for Header<'a> {
-    // fn get_children(&self) -> &ReactNodeList {
-    //     self._children
-    //         .as_ref()
-    //         .expect("No children set for component instance")
-    // }
+    fn render(&self) -> react::ReactNodeList {
+        List(vec![
+            Rc::new(Text("You said: ".into())),
+            Rc::new(Text(self.title.into())),
+            Rc::new(Host(
+                "div",
+                Some(Rc::new(FunctionComponent(Box::new(Tail {
+                    title: "TAIL!",
+                })))),
+            )),
+        ])
+    }
+}
 
-    // fn set_children(&mut self, children: ReactNodeList<'a>) {
-    // self._children = Some(children);
-    // }
-    // fn init(&mut self) {
-    // self._children = Some(self.render());
-    // }
+#[derive(Debug)]
+struct Tail<'a> {
+    title: &'a str,
+}
 
-    fn render(&mut self) -> &react::ReactNodeList<'a> {
-        self._children = Some(List(vec![Text("You said: "), Text(self.title)]));
-        self._children.as_ref().unwrap()
+impl<'a> react::FunctionComponentTrait for Tail<'a> {
+    fn render(&self) -> react::ReactNodeList {
+        List(vec![
+            Rc::new(Text("I did say that yeah".into())),
+            Rc::new(Text(self.title.into())),
+        ])
     }
 }
 
@@ -64,19 +66,16 @@ pub fn run() -> Result<(), JsValue> {
     let mut root = react::create_root(body.into());
     root.render(Host(
         "div",
-        Some(Box::new(List(vec![
-            Host(
+        Some(Rc::new(List(vec![
+            Rc::new(Host(
                 "div",
-                Some(Box::new(List(vec![Host(
+                Some(Rc::new(List(vec![Rc::new(Host(
                     "h1",
-                    Some(Box::new(Text("Hello World"))),
-                )]))),
-            ),
-            Host("p", Some(Box::new(Text("From React in WASM")))),
-            FunctionComponent(Box::new(Header {
-                title: "Hergooot",
-                _children: None,
-            })),
+                    Some(Rc::new(Text("Hello World".into()))),
+                ))]))),
+            )),
+            Rc::new(Host("p", Some(Rc::new(Text("From React in WASM".into()))))),
+            Rc::new(FunctionComponent(Box::new(Header { title: "Hergooot" }))),
         ]))),
     ));
     Ok(())

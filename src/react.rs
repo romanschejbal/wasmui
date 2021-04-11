@@ -1,27 +1,27 @@
 use std::{cell::RefCell, rc::Rc};
 use web_sys::{Element, Node};
 
-pub fn create_root<'a>(container: Element) -> FiberRootNode<'a> {
+pub fn create_root(container: Element) -> FiberRootNode {
     FiberRootNode::new(container)
 }
 
 pub trait FunctionComponentTrait: std::fmt::Debug {
     // fn get_children(&self) -> &ReactNodeList;
-    // fn set_children<'a>(&mut self, children: ReactNodeList<'a>);
+    // fn set_children<'static>(&mut self, children: ReactNodeList<'static>);
     // fn init(&mut self);
-    fn render(&mut self) -> &ReactNodeList;
+    fn render(&self) -> ReactNodeList;
 }
 
 #[derive(Debug)]
-pub enum ReactNodeList<'a> {
-    Root(Box<ReactNodeList<'a>>),
-    List(Vec<ReactNodeList<'a>>),
-    Host(&'a str, Option<Box<ReactNodeList<'a>>>),
-    Text(&'a str),
-    FunctionComponent(Box<dyn FunctionComponentTrait>),
+pub enum ReactNodeList {
+    Root(Rc<ReactNodeList>),
+    List(Vec<Rc<ReactNodeList>>),
+    Host(&'static str, Option<Rc<ReactNodeList>>),
+    Text(String),
+    FunctionComponent(Box<dyn FunctionComponentTrait + 'static>),
 }
 
-impl ReactNodeList<'_> {
+impl ReactNodeList {
     fn get_name(&self) -> String {
         use ReactNodeList::*;
         match self {
@@ -34,18 +34,18 @@ impl ReactNodeList<'_> {
     }
 }
 
-type Fiber<'a> = Rc<RefCell<FiberNode<'a>>>;
+type Fiber = Rc<RefCell<FiberNode>>;
 
-pub struct FiberNode<'a> {
-    element: &'a ReactNodeList<'a>,
+pub struct FiberNode {
+    element: Rc<ReactNodeList>,
     dom: Option<Node>,
-    child: Option<Fiber<'a>>,
-    sibling: Option<Fiber<'a>>,
-    parent: Option<Fiber<'a>>,
+    child: Option<Fiber>,
+    sibling: Option<Fiber>,
+    parent: Option<Fiber>,
 }
 
-impl<'a> FiberNode<'a> {
-    fn new(element: &'a ReactNodeList<'a>) -> Self {
+impl FiberNode {
+    fn new(element: Rc<ReactNodeList>) -> Self {
         Self {
             element,
             dom: None,
@@ -55,25 +55,25 @@ impl<'a> FiberNode<'a> {
         }
     }
 
-    fn set_child(&mut self, child: Fiber<'a>) {
+    fn set_child(&mut self, child: Fiber) {
         self.child = Some(child);
     }
 
-    fn set_sibling(&mut self, sibling: Fiber<'a>) {
+    fn set_sibling(&mut self, sibling: Fiber) {
         self.sibling = Some(sibling);
     }
 
-    fn set_return(&mut self, parent: Fiber<'a>) {
+    fn set_return(&mut self, parent: Fiber) {
         self.parent = Some(parent);
     }
 }
-pub struct FiberRootNode<'a> {
-    element: Option<ReactNodeList<'a>>,
+pub struct FiberRootNode {
+    element: Option<Rc<ReactNodeList>>,
     dom: Option<Element>,
-    wip: Option<Fiber<'a>>,
+    wip: Option<Fiber>,
 }
 
-impl<'a> FiberRootNode<'a> {
+impl FiberRootNode {
     fn new(dom: Element) -> Self {
         Self {
             dom: Some(dom),
@@ -82,10 +82,10 @@ impl<'a> FiberRootNode<'a> {
         }
     }
 
-    pub fn render(&'a mut self, children: ReactNodeList<'a>) {
-        self.element = Some(ReactNodeList::Root(Box::new(children)));
+    pub fn render(&mut self, children: ReactNodeList) {
+        self.element = Some(Rc::new(ReactNodeList::Root(Rc::new(children))));
 
-        let mut root_fiber = FiberNode::new(self.element.as_ref().unwrap());
+        let mut root_fiber = FiberNode::new(self.element.clone().unwrap());
         root_fiber.dom = Some(self.dom.take().unwrap().into());
 
         let boxed_root_fiber = Rc::new(RefCell::new(root_fiber));
@@ -121,18 +121,20 @@ fn create_text(text: &str) -> Node {
         .into()
 }
 
-fn perform_unit_of_work<'a>(fiber: Fiber<'a>) -> Option<Fiber<'a>> {
+fn perform_unit_of_work(fiber: Fiber) -> Option<Fiber> {
     use ReactNodeList::*;
     {
         let mut fiber_mut = fiber.borrow_mut();
 
         super::log(&format!("PERFORM: {}", fiber_mut.element.get_name()));
-        match fiber_mut.element {
+        match fiber_mut.element.as_ref() {
             Root(children) => {
+                let children = children.clone();
                 drop(fiber_mut);
                 reconcile_children(fiber.clone(), children);
             }
             Host(tag, children) => {
+                let children = children.clone();
                 if fiber_mut.dom.is_none() {
                     fiber_mut.dom = Some(create_dom(tag));
                     // @todo update_dom with props
@@ -145,16 +147,16 @@ fn perform_unit_of_work<'a>(fiber: Fiber<'a>) -> Option<Fiber<'a>> {
             List(children) => {
                 children
                     .iter()
-                    .for_each(|child| reconcile_children(fiber.clone(), child));
+                    .for_each(|child| reconcile_children(fiber.clone(), child.clone()));
             }
             Text(txt) => {
                 fiber_mut.dom = Some(create_text(txt));
             }
             FunctionComponent(component) => {
-                // fiber_mut.element = component.render();
-                // reconcile_children(fiber.clone(), component.render());
+                let children = Rc::new(component.as_ref().render());
+                drop(fiber_mut);
+                reconcile_children(fiber.clone(), children);
             }
-            _ => (),
         }
     }
 
@@ -173,9 +175,9 @@ fn perform_unit_of_work<'a>(fiber: Fiber<'a>) -> Option<Fiber<'a>> {
     return None;
 }
 
-fn reconcile_children<'a>(wip_fiber: Fiber<'a>, children: &'a ReactNodeList<'a>) {
+fn reconcile_children(wip_fiber: Fiber, children: Rc<ReactNodeList>) {
     use ReactNodeList::*;
-    match children {
+    match children.as_ref() {
         Host(_, _child) => {
             let mut fiber = FiberNode::new(children);
             fiber.parent = Some(wip_fiber.clone());
@@ -185,7 +187,7 @@ fn reconcile_children<'a>(wip_fiber: Fiber<'a>, children: &'a ReactNodeList<'a>)
             let mut first = None;
             let mut previous_sibling = None;
             for child in children.into_iter() {
-                let fiber = Rc::new(RefCell::new(FiberNode::new(child)));
+                let fiber = Rc::new(RefCell::new(FiberNode::new(child.clone())));
                 fiber.borrow_mut().parent = Some(wip_fiber.clone());
                 if first.is_none() {
                     first = Some(fiber.clone());
@@ -202,22 +204,29 @@ fn reconcile_children<'a>(wip_fiber: Fiber<'a>, children: &'a ReactNodeList<'a>)
             fiber.parent = Some(wip_fiber.clone());
             wip_fiber.borrow_mut().child = Some(Rc::new(RefCell::new(fiber)));
         }
-        _ => (),
+        FunctionComponent(component) => {
+            let mut fiber = FiberNode::new(children);
+            fiber.parent = Some(wip_fiber.clone());
+            wip_fiber.borrow_mut().child = Some(Rc::new(RefCell::new(fiber)));
+        }
+        Root(_) => {}
     }
 }
 
 fn commit_work(fiber: Fiber) {
-    let mut dom_parent_fiber = fiber.borrow().parent.clone();
-    if let Some(dpf) = dom_parent_fiber.clone() {
-        while dpf.borrow().dom.is_none() {
-            dom_parent_fiber = dpf.borrow().parent.clone();
+    super::log(&format!("COMMITING {}", fiber.borrow().element.get_name()));
+
+    let mut dom_parent_fiber_opt = fiber.borrow().parent.clone();
+    while let Some(dom_parent_fiber) = dom_parent_fiber_opt.clone() {
+        if dom_parent_fiber.borrow().dom.is_none() {
+            dom_parent_fiber_opt = dom_parent_fiber.borrow().parent.clone();
+        } else {
+            break;
         }
     }
 
-    super::log(&format!("COMMITING {}", fiber.borrow().element.get_name()));
-
     if let Some(dom) = &fiber.borrow().dom {
-        dom_parent_fiber
+        dom_parent_fiber_opt
             .unwrap()
             .borrow()
             .dom
@@ -226,7 +235,8 @@ fn commit_work(fiber: Fiber) {
             .append_child(dom)
             .unwrap();
     } else {
-        panic!("FUCK");
+        // fn component
+        // panic!("FUCK {:#?}", fiber);
     }
 
     //   if (fiber.effect_tag === "PLACEMENT" && fiber.dom != null) {
@@ -249,7 +259,7 @@ fn commit_work(fiber: Fiber) {
         .map(|f| commit_work(f.clone()));
 }
 
-impl std::fmt::Debug for FiberNode<'_> {
+impl std::fmt::Debug for FiberNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "{{\n  child: {:#?}\n  sibling: {:#?}\n  dom: {:#?}\n}}",
