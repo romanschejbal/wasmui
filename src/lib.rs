@@ -1,12 +1,12 @@
 mod react;
 mod utils;
 
-use std::{cell::RefCell, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
-use macros::component;
-use react::ReactNodeList::*;
-use react::{FunctionComponentTrait, ReactNodeList};
+use react::{EventListener, HostAttribute, ReactNodeList::*};
+use react::{FunctionComponent, ReactNodeList};
 use wasm_bindgen::prelude::*;
+use web_sys::Element;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -27,13 +27,14 @@ struct Header<'a> {
     title: &'a str,
 }
 
-impl<'a> react::FunctionComponentTrait for Header<'a> {
-    fn render(&self) -> react::ReactNodeList {
+impl<'a> FunctionComponent for Header<'a> {
+    fn render(&self) -> ReactNodeList {
         List(vec![
             Rc::new(Text("You said: ".into())),
             Rc::new(Text(self.title.into())),
             Rc::new(Host(
                 "div",
+                HashMap::new(),
                 Some(Rc::new(FunctionComponent(Box::new(Tail {
                     title: "TAIL!",
                 })))),
@@ -47,12 +48,34 @@ struct Tail<'a> {
     title: &'a str,
 }
 
-impl<'a> react::FunctionComponentTrait for Tail<'a> {
-    fn render(&self) -> react::ReactNodeList {
+impl<'a> FunctionComponent for Tail<'a> {
+    fn render(&self) -> ReactNodeList {
         List(vec![
             Rc::new(Text("I did say that yeah".into())),
             Rc::new(Text(self.title.into())),
+            Rc::new(FunctionComponent(Box::new(Button))),
         ])
+    }
+}
+
+#[derive(Debug)]
+struct Button;
+
+impl FunctionComponent for Button {
+    fn render(&self) -> ReactNodeList {
+        let mut props = HashMap::new();
+        let mut times = 0;
+        let on_click: Box<dyn HostAttribute<Type = Element>> =
+            Box::new(EventListener(Closure::wrap(Box::new(move || {
+                times += 1;
+                log("HELLO FROM BUTTON")
+            }))));
+        props.insert("click", on_click);
+        Host(
+            "button",
+            props,
+            Some(Rc::new(Text(format!("CLICKED ME {} TIMES", times)))),
+        )
     }
 }
 
@@ -66,15 +89,22 @@ pub fn run() -> Result<(), JsValue> {
     let mut root = react::create_root(body.into());
     root.render(Host(
         "div",
+        HashMap::new(),
         Some(Rc::new(List(vec![
             Rc::new(Host(
                 "div",
+                HashMap::new(),
                 Some(Rc::new(List(vec![Rc::new(Host(
                     "h1",
+                    HashMap::new(),
                     Some(Rc::new(Text("Hello World".into()))),
                 ))]))),
             )),
-            Rc::new(Host("p", Some(Rc::new(Text("From React in WASM".into()))))),
+            Rc::new(Host(
+                "p",
+                HashMap::new(),
+                Some(Rc::new(Text("From React in WASM".into()))),
+            )),
             Rc::new(FunctionComponent(Box::new(Header { title: "Hergooot" }))),
         ]))),
     ));

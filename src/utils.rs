@@ -23,11 +23,11 @@ impl RequestIdleCallback {
 
         fun();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-            // fun();
-            // let window = web_sys::window().unwrap();
-            // window
-            //     .request_idle_callback(f.borrow().as_ref().unwrap().as_ref().unchecked_ref())
-            //     .unwrap();
+            fun();
+            let window = web_sys::window().unwrap();
+            window
+                .request_idle_callback(f.borrow().as_ref().unwrap().as_ref().unchecked_ref())
+                .unwrap();
         }) as Box<dyn FnMut()>));
 
         Self { callback: g }

@@ -1,24 +1,58 @@
-use std::{cell::RefCell, rc::Rc};
+use core::panic;
+use std::{
+    cell::{RefCell, RefMut},
+    collections::HashMap,
+    rc::Rc,
+};
+use wasm_bindgen::{prelude::Closure, JsCast};
 use web_sys::{Element, Node};
 
 pub fn create_root(container: Element) -> FiberRootNode {
     FiberRootNode::new(container)
 }
 
-pub trait FunctionComponentTrait: std::fmt::Debug {
-    // fn get_children(&self) -> &ReactNodeList;
-    // fn set_children<'static>(&mut self, children: ReactNodeList<'static>);
-    // fn init(&mut self);
+pub trait FunctionComponent: std::fmt::Debug {
     fn render(&self) -> ReactNodeList;
+}
+
+pub trait HostAttribute {
+    type Type;
+    fn set(&self, key: &str, component: &mut Self::Type);
+    fn remove(&self, key: &str, component: &mut Self::Type);
+}
+
+impl std::fmt::Debug for dyn HostAttribute<Type = Element> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HostAttribute")
+    }
+}
+
+type HostProps = HashMap<&'static str, Box<dyn HostAttribute<Type = Element>>>;
+
+pub struct EventListener(pub Closure<dyn FnMut()>);
+impl HostAttribute for EventListener {
+    type Type = Element;
+
+    fn set(&self, key: &str, component: &mut Self::Type) {
+        component
+            .add_event_listener_with_callback(key, self.0.as_ref().unchecked_ref())
+            .unwrap();
+    }
+
+    fn remove(&self, key: &str, component: &mut Self::Type) {
+        component
+            .remove_event_listener_with_callback(key, self.0.as_ref().unchecked_ref())
+            .unwrap();
+    }
 }
 
 #[derive(Debug)]
 pub enum ReactNodeList {
     Root(Rc<ReactNodeList>),
     List(Vec<Rc<ReactNodeList>>),
-    Host(&'static str, Option<Rc<ReactNodeList>>),
+    Host(&'static str, HostProps, Option<Rc<ReactNodeList>>),
     Text(String),
-    FunctionComponent(Box<dyn FunctionComponentTrait + 'static>),
+    FunctionComponent(Box<dyn FunctionComponent + 'static>),
 }
 
 impl ReactNodeList {
@@ -26,7 +60,7 @@ impl ReactNodeList {
         use ReactNodeList::*;
         match self {
             Root(_) => "ROOT".into(),
-            Host(name, _) => format!("{} (host)", name.to_string()),
+            Host(name, _, _) => format!("{} (host)", name.to_string()),
             Text(content) => format!("{} (text)", content),
             FunctionComponent(_) => "FunctionComponent".into(),
             _ => "_".into(),
@@ -38,7 +72,7 @@ type Fiber = Rc<RefCell<FiberNode>>;
 
 pub struct FiberNode {
     element: Rc<ReactNodeList>,
-    dom: Option<Node>,
+    dom: Option<Element>,
     child: Option<Fiber>,
     sibling: Option<Fiber>,
     parent: Option<Fiber>,
@@ -54,23 +88,11 @@ impl FiberNode {
             parent: None,
         }
     }
-
-    fn set_child(&mut self, child: Fiber) {
-        self.child = Some(child);
-    }
-
-    fn set_sibling(&mut self, sibling: Fiber) {
-        self.sibling = Some(sibling);
-    }
-
-    fn set_return(&mut self, parent: Fiber) {
-        self.parent = Some(parent);
-    }
 }
 pub struct FiberRootNode {
     element: Option<Rc<ReactNodeList>>,
     dom: Option<Element>,
-    wip: Option<Fiber>,
+    wip_root: Option<Fiber>,
 }
 
 impl FiberRootNode {
@@ -78,7 +100,7 @@ impl FiberRootNode {
         Self {
             dom: Some(dom),
             element: None,
-            wip: None,
+            wip_root: None,
         }
     }
 
@@ -89,36 +111,81 @@ impl FiberRootNode {
         root_fiber.dom = Some(self.dom.take().unwrap().into());
 
         let boxed_root_fiber = Rc::new(RefCell::new(root_fiber));
-        self.wip = Some(boxed_root_fiber.clone());
+        self.wip_root = Some(boxed_root_fiber.clone());
 
         let mut next_unit_of_work = Some(boxed_root_fiber.clone());
-        while let Some(next) = next_unit_of_work {
-            next_unit_of_work = perform_unit_of_work(next);
-        }
+        let mut wip_root_fiber = next_unit_of_work.clone();
+        let callback = super::utils::RequestIdleCallback::new(Box::new(move || {
+            if let Some(next) = next_unit_of_work.take() {
+                next_unit_of_work = perform_unit_of_work(next);
+            } else if let Some(wip_root) = wip_root_fiber.take() {
+                commit_work(wip_root.borrow().child.clone().unwrap());
+            }
+        }));
+        callback.start();
 
-        commit_work(boxed_root_fiber.borrow().child.clone().unwrap());
-
-        super::log(&format!("{:?}", self.wip));
+        super::log(&format!("{:?}", self.wip_root));
     }
 }
 
-fn create_dom(tag: &str) -> Node {
-    web_sys::window()
-        .expect("window not available")
-        .document()
-        .expect("document not available")
-        .create_element(tag)
-        .expect("can't create element")
-        .into()
+fn create_dom(fiber: &mut RefMut<FiberNode>) -> Element {
+    use ReactNodeList::*;
+    let (mut node, props) = match fiber.element.as_ref() {
+        Host(tag, props, _children) => (
+            web_sys::window()
+                .expect("window not available")
+                .document()
+                .expect("document not available")
+                .create_element(tag)
+                .expect("can't create element"),
+            props,
+        ),
+        _ => panic!("Unsupported element type passed to create_dom function"),
+    };
+    update_dom(&mut node, &Box::new(HashMap::new()), props);
+    node
 }
 
-fn create_text(text: &str) -> Node {
-    web_sys::window()
+fn update_dom(node: &mut Element, prev_props: &HostProps, props: &HostProps) {
+    // Remove old or changed
+    prev_props
+        .iter()
+        .filter(|(k, _)| is_gone(k, props) || is_new(k, prev_props, props))
+        .for_each(|(key, attr)| {
+            attr.remove(key, node);
+        });
+
+    // Set new or changed
+    props
+        .iter()
+        .filter(|(k, _)| is_new(k, prev_props, props))
+        .for_each(|(key, attr)| attr.set(key, node));
+}
+
+fn is_gone(key: &str, props: &HostProps) -> bool {
+    !props.contains_key(key)
+}
+
+fn is_new(_key: &str, _prev_props: &HostProps, _props: &HostProps) -> bool {
+    // prevProps.get(key) != props.get(key)
+    true
+}
+
+fn create_text(text: &str) -> Element {
+    let node: Node = web_sys::window()
         .expect("window not available")
         .document()
         .expect("document not available")
         .create_text_node(text)
-        .into()
+        .into();
+    let el = web_sys::window()
+        .expect("window not available")
+        .document()
+        .expect("document not available")
+        .create_element("span")
+        .expect("can't create element");
+    el.append_child(&node).unwrap();
+    el
 }
 
 fn perform_unit_of_work(fiber: Fiber) -> Option<Fiber> {
@@ -133,11 +200,10 @@ fn perform_unit_of_work(fiber: Fiber) -> Option<Fiber> {
                 drop(fiber_mut);
                 reconcile_children(fiber.clone(), children);
             }
-            Host(tag, children) => {
+            Host(_tag, _props, children) => {
                 let children = children.clone();
                 if fiber_mut.dom.is_none() {
-                    fiber_mut.dom = Some(create_dom(tag));
-                    // @todo update_dom with props
+                    fiber_mut.dom = Some(create_dom(&mut fiber_mut));
                 }
                 drop(fiber_mut);
                 if let Some(children) = children {
@@ -178,7 +244,7 @@ fn perform_unit_of_work(fiber: Fiber) -> Option<Fiber> {
 fn reconcile_children(wip_fiber: Fiber, children: Rc<ReactNodeList>) {
     use ReactNodeList::*;
     match children.as_ref() {
-        Host(_, _child) => {
+        Host(_, _props, _child) => {
             let mut fiber = FiberNode::new(children);
             fiber.parent = Some(wip_fiber.clone());
             wip_fiber.borrow_mut().child = Some(Rc::new(RefCell::new(fiber)));
@@ -193,7 +259,7 @@ fn reconcile_children(wip_fiber: Fiber, children: Rc<ReactNodeList>) {
                     first = Some(fiber.clone());
                 }
                 previous_sibling.map(|prev: Rc<RefCell<FiberNode>>| {
-                    prev.borrow_mut().set_sibling(fiber.clone())
+                    prev.borrow_mut().sibling = Some(fiber.clone());
                 });
                 previous_sibling = Some(fiber);
             }
@@ -204,7 +270,7 @@ fn reconcile_children(wip_fiber: Fiber, children: Rc<ReactNodeList>) {
             fiber.parent = Some(wip_fiber.clone());
             wip_fiber.borrow_mut().child = Some(Rc::new(RefCell::new(fiber)));
         }
-        FunctionComponent(component) => {
+        FunctionComponent(_component) => {
             let mut fiber = FiberNode::new(children);
             fiber.parent = Some(wip_fiber.clone());
             wip_fiber.borrow_mut().child = Some(Rc::new(RefCell::new(fiber)));
@@ -236,7 +302,6 @@ fn commit_work(fiber: Fiber) {
             .unwrap();
     } else {
         // fn component
-        // panic!("FUCK {:#?}", fiber);
     }
 
     //   if (fiber.effect_tag === "PLACEMENT" && fiber.dom != null) {
@@ -262,7 +327,7 @@ fn commit_work(fiber: Fiber) {
 impl std::fmt::Debug for FiberNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "{{\n  child: {:#?}\n  sibling: {:#?}\n  dom: {:#?}\n}}",
+            "{{\n child: {:#?}\n sibling: {:#?}\n dom: {:#?}\n}}",
             self.child,
             self.sibling,
             self.element.get_name()
