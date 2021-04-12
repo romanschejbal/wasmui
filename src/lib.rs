@@ -3,7 +3,7 @@ mod utils;
 
 use std::{collections::HashMap, rc::Rc};
 
-use react::{EventListener, HostAttribute, ReactNodeList::*};
+use react::{EventListener, HostAttribute, ReactNodeList::*, StringAttr};
 use react::{FunctionComponent, ReactNodeList};
 use wasm_bindgen::prelude::*;
 use web_sys::Element;
@@ -50,9 +50,14 @@ struct Tail<'a> {
 
 impl<'a> FunctionComponent for Tail<'a> {
     fn render(&self) -> ReactNodeList {
+        let mut props = HashMap::new();
+        props.insert(
+            "class",
+            Box::new(StringAttr("highlight".into())) as Box<dyn HostAttribute<Type = Element>>,
+        );
         List(vec![
-            Rc::new(Text("I did say that yeah".into())),
-            Rc::new(Text(self.title.into())),
+            Rc::new(Text("I did say that yeah... ".into())),
+            Rc::new(Host("span", props, Some(Rc::new(Text(self.title.into()))))),
             Rc::new(FunctionComponent(Box::new(Button))),
         ])
     }
@@ -64,17 +69,15 @@ struct Button;
 impl FunctionComponent for Button {
     fn render(&self) -> ReactNodeList {
         let mut props = HashMap::new();
-        let mut times = 0;
         let on_click: Box<dyn HostAttribute<Type = Element>> =
             Box::new(EventListener(Closure::wrap(Box::new(move || {
-                times += 1;
                 log("HELLO FROM BUTTON")
             }))));
         props.insert("click", on_click);
         Host(
             "button",
             props,
-            Some(Rc::new(Text(format!("CLICKED ME {} TIMES", times)))),
+            Some(Rc::new(Text(format!("CLICKED ME {} TIMES", 0)))),
         )
     }
 }

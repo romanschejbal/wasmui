@@ -46,6 +46,19 @@ impl HostAttribute for EventListener {
     }
 }
 
+pub struct StringAttr(pub String);
+impl HostAttribute for StringAttr {
+    type Type = Element;
+
+    fn set(&self, key: &str, component: &mut Self::Type) {
+        component.set_attribute(key, &self.0).unwrap();
+    }
+
+    fn remove(&self, key: &str, component: &mut Self::Type) {
+        component.remove_attribute(key).unwrap();
+    }
+}
+
 #[derive(Debug)]
 pub enum ReactNodeList {
     Root(Rc<ReactNodeList>),
@@ -93,6 +106,7 @@ pub struct FiberRootNode {
     element: Option<Rc<ReactNodeList>>,
     dom: Option<Element>,
     wip_root: Option<Fiber>,
+    ric: Option<super::utils::RequestIdleCallback>,
 }
 
 impl FiberRootNode {
@@ -101,6 +115,7 @@ impl FiberRootNode {
             dom: Some(dom),
             element: None,
             wip_root: None,
+            ric: None,
         }
     }
 
@@ -115,14 +130,26 @@ impl FiberRootNode {
 
         let mut next_unit_of_work = Some(boxed_root_fiber.clone());
         let mut wip_root_fiber = next_unit_of_work.clone();
-        let callback = super::utils::RequestIdleCallback::new(Box::new(move || {
-            if let Some(next) = next_unit_of_work.take() {
-                next_unit_of_work = perform_unit_of_work(next);
-            } else if let Some(wip_root) = wip_root_fiber.take() {
-                commit_work(wip_root.borrow().child.clone().unwrap());
-            }
-        }));
-        callback.start();
+        self.ric = Some(super::utils::RequestIdleCallback::new(Box::new(
+            move || {
+                if let Some(next) = next_unit_of_work.take() {
+                    next_unit_of_work = perform_unit_of_work(next);
+                    commit_work(
+                        wip_root_fiber
+                            .clone()
+                            .unwrap()
+                            .borrow()
+                            .child
+                            .clone()
+                            .unwrap(),
+                    );
+                } else if let Some(wip_root) = wip_root_fiber.take() {
+                    super::log("COMMITING...");
+                    commit_work(wip_root.borrow().child.clone().unwrap());
+                }
+            },
+        )));
+        self.ric.as_ref().unwrap().start();
 
         super::log(&format!("{:?}", self.wip_root));
     }

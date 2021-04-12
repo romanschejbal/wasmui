@@ -21,7 +21,6 @@ impl RequestIdleCallback {
         let f: Rc<RefCell<Option<Closure<_>>>> = Rc::new(RefCell::new(None));
         let g = Rc::clone(&f);
 
-        fun();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             fun();
             let window = web_sys::window().unwrap();
