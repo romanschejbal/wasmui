@@ -30,6 +30,7 @@ impl std::fmt::Debug for dyn HostAttribute<Type = Element> {
 type HostProps = HashMap<&'static str, Box<dyn HostAttribute<Type = Element>>>;
 
 pub struct EventListener(pub Closure<dyn FnMut()>);
+
 impl HostAttribute for EventListener {
     type Type = Element;
 
@@ -89,6 +90,7 @@ pub struct FiberNode {
     child: Option<Fiber>,
     sibling: Option<Fiber>,
     parent: Option<Fiber>,
+    _alternate: Option<Fiber>,
 }
 
 impl FiberNode {
@@ -99,6 +101,7 @@ impl FiberNode {
             child: None,
             sibling: None,
             parent: None,
+            _alternate: None,
         }
     }
 }
@@ -194,7 +197,7 @@ fn is_gone(key: &str, props: &HostProps) -> bool {
 }
 
 fn is_new(_key: &str, _prev_props: &HostProps, _props: &HostProps) -> bool {
-    // @todo HostProps can't reference Self in order to stay as a safe object
+    // @todo HostProps can't reference Self in order to be a safe object
     //       figure it out!
     true
 }
@@ -319,9 +322,8 @@ fn commit_work(fiber: Fiber) {
         }
     }
 
-
     // @todo:
-    //   if "PLACEMENT" && fiber.dom != null {
+    //   if PLACEMENT && fiber.dom != null {
     if let Some(dom) = &fiber.borrow().dom {
         dom_parent_fiber_opt
             .unwrap()
@@ -331,14 +333,11 @@ fn commit_work(fiber: Fiber) {
             .unwrap()
             .append_child(dom)
             .unwrap();
-    } else {
-        // fn component
     }
-    //     domParent.appendChild(fiber.dom);
-    //   } else if "UPDATE" && fiber.dom != null) {
+    //   } else if UPDATE && fiber.dom != null) {
     //     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
     //   } else if (fiber.effectTag === "DELETION") {
-    //     commitDeletion(fiber, domParent);
+    //     commitDeletion(fiber, dom_parent);
     //   }
 
     fiber

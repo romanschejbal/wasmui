@@ -35,6 +35,7 @@ impl<'a> FunctionComponent for Button<'a> {
                 log("HELLO FROM BUTTON")
             }))));
         props.insert("click", on_click);
+        // props.insert("className", Box::new(react::StringAttr("highlight".into())));
         Host(
             "button",
             props,
@@ -46,6 +47,7 @@ impl<'a> FunctionComponent for Button<'a> {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     utils::set_panic_hook();
+
     let window = web_sys::window().expect("no global `window` exists");
     let document = window.document().expect("should have a document on window");
     let body = document.body().expect("document should have a body");
@@ -74,3 +76,19 @@ pub fn run() -> Result<(), JsValue> {
     ));
     Ok(())
 }
+
+// jsx! {
+//    <div>
+//      <button type="text" onClick={EventListener(|| { log("clicked") })}>Click meeee!</button>
+//    </div>
+// }
+
+// div![
+//     button![
+//         props![
+//             ("className", "test"),
+//             ("click", EventListener(|| { log("clicked") }))
+//         ],
+//         "Click meee!"
+//     ]
+// ]
