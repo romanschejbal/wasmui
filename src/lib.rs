@@ -3,7 +3,7 @@ mod utils;
 
 use std::{collections::HashMap, rc::Rc};
 
-use react::{EventListener, HostAttribute, ReactNodeList::*, StringAttr};
+use react::{EventListener, HostAttribute, ReactNodeList::*};
 use react::{FunctionComponent, ReactNodeList};
 use wasm_bindgen::prelude::*;
 use web_sys::Element;
@@ -23,50 +23,11 @@ extern "C" {
 }
 
 #[derive(Debug)]
-struct Header<'a> {
+struct Button<'a> {
     title: &'a str,
 }
 
-impl<'a> FunctionComponent for Header<'a> {
-    fn render(&self) -> ReactNodeList {
-        List(vec![
-            Rc::new(Text("You said: ".into())),
-            Rc::new(Text(self.title.into())),
-            Rc::new(Host(
-                "div",
-                HashMap::new(),
-                Some(Rc::new(FunctionComponent(Box::new(Tail {
-                    title: "TAIL!",
-                })))),
-            )),
-        ])
-    }
-}
-
-#[derive(Debug)]
-struct Tail<'a> {
-    title: &'a str,
-}
-
-impl<'a> FunctionComponent for Tail<'a> {
-    fn render(&self) -> ReactNodeList {
-        let mut props = HashMap::new();
-        props.insert(
-            "class",
-            Box::new(StringAttr("highlight".into())) as Box<dyn HostAttribute<Type = Element>>,
-        );
-        List(vec![
-            Rc::new(Text("I did say that yeah... ".into())),
-            Rc::new(Host("span", props, Some(Rc::new(Text(self.title.into()))))),
-            Rc::new(FunctionComponent(Box::new(Button))),
-        ])
-    }
-}
-
-#[derive(Debug)]
-struct Button;
-
-impl FunctionComponent for Button {
+impl<'a> FunctionComponent for Button<'a> {
     fn render(&self) -> ReactNodeList {
         let mut props = HashMap::new();
         let on_click: Box<dyn HostAttribute<Type = Element>> =
@@ -108,7 +69,7 @@ pub fn run() -> Result<(), JsValue> {
                 HashMap::new(),
                 Some(Rc::new(Text("From React in WASM".into()))),
             )),
-            Rc::new(FunctionComponent(Box::new(Header { title: "Hergooot" }))),
+            Rc::new(FunctionComponent(Box::new(Button { title: "Click me!" }))),
         ]))),
     ));
     Ok(())

@@ -194,7 +194,8 @@ fn is_gone(key: &str, props: &HostProps) -> bool {
 }
 
 fn is_new(_key: &str, _prev_props: &HostProps, _props: &HostProps) -> bool {
-    // prevProps.get(key) != props.get(key)
+    // @todo HostProps can't reference Self in order to stay as a safe object
+    //       figure it out!
     true
 }
 
@@ -318,6 +319,9 @@ fn commit_work(fiber: Fiber) {
         }
     }
 
+
+    // @todo:
+    //   if "PLACEMENT" && fiber.dom != null {
     if let Some(dom) = &fiber.borrow().dom {
         dom_parent_fiber_opt
             .unwrap()
@@ -330,10 +334,8 @@ fn commit_work(fiber: Fiber) {
     } else {
         // fn component
     }
-
-    //   if (fiber.effect_tag === "PLACEMENT" && fiber.dom != null) {
-    // domParent.appendChild(fiber.dom);
-    //   } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
+    //     domParent.appendChild(fiber.dom);
+    //   } else if "UPDATE" && fiber.dom != null) {
     //     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
     //   } else if (fiber.effectTag === "DELETION") {
     //     commitDeletion(fiber, domParent);
