@@ -90,7 +90,7 @@ pub struct FiberNode {
     child: Option<Fiber>,
     sibling: Option<Fiber>,
     parent: Option<Fiber>,
-    _alternate: Option<Fiber>,
+    alternate: Option<Fiber>,
 }
 
 impl FiberNode {
@@ -101,7 +101,7 @@ impl FiberNode {
             child: None,
             sibling: None,
             parent: None,
-            _alternate: None,
+            alternate: None,
         }
     }
 }
@@ -109,7 +109,8 @@ pub struct FiberRootNode {
     element: Option<Rc<ReactNodeList>>,
     dom: Option<Element>,
     wip_root: Option<Fiber>,
-    ric: Option<super::utils::RequestIdleCallback>,
+    current_root: Option<Fiber>,
+    next_unit_of_work: Option<Fiber>,
 }
 
 impl FiberRootNode {
@@ -118,11 +119,12 @@ impl FiberRootNode {
             dom: Some(dom),
             element: None,
             wip_root: None,
-            ric: None,
+            current_root: None,
+            next_unit_of_work: None,
         }
     }
 
-    pub fn render(&mut self, children: ReactNodeList) {
+    pub fn render(mut self, children: ReactNodeList) {
         self.element = Some(Rc::new(ReactNodeList::Root(Rc::new(children))));
 
         let mut root_fiber = FiberNode::new(self.element.clone().unwrap());
@@ -131,14 +133,16 @@ impl FiberRootNode {
         let boxed_root_fiber = Rc::new(RefCell::new(root_fiber));
         self.wip_root = Some(boxed_root_fiber.clone());
 
-        let mut next_unit_of_work = Some(boxed_root_fiber.clone());
-        let mut wip_root_fiber = next_unit_of_work.clone();
-        self.ric = Some(super::utils::RequestIdleCallback::new(Box::new(
+        self.next_unit_of_work = Some(boxed_root_fiber.clone());
+        self.wip_root = Some(boxed_root_fiber.clone());
+
+        let request_idle_callback = Some(super::utils::RequestIdleCallback::new(Box::new(
             move || {
-                if let Some(next) = next_unit_of_work.take() {
-                    next_unit_of_work = perform_unit_of_work(next);
+                if let Some(next) = self.next_unit_of_work.take() {
+                    self.next_unit_of_work = perform_unit_of_work(next);
+                    // render as you perform
                     commit_work(
-                        wip_root_fiber
+                        self.wip_root
                             .clone()
                             .unwrap()
                             .borrow()
@@ -146,15 +150,14 @@ impl FiberRootNode {
                             .clone()
                             .unwrap(),
                     );
-                } else if let Some(wip_root) = wip_root_fiber.take() {
+                } else if let Some(wip_root) = self.wip_root.take() {
                     super::log("COMMITING...");
                     commit_work(wip_root.borrow().child.clone().unwrap());
+                    self.current_root = Some(wip_root);
                 }
             },
         )));
-        self.ric.as_ref().unwrap().start();
-
-        super::log(&format!("{:?}", self.wip_root));
+        request_idle_callback.unwrap().start();
     }
 }
 
@@ -274,6 +277,12 @@ fn perform_unit_of_work(fiber: Fiber) -> Option<Fiber> {
 
 fn reconcile_children(wip_fiber: Fiber, children: Rc<ReactNodeList>) {
     use ReactNodeList::*;
+    let alternate = wip_fiber
+        .borrow()
+        .alternate
+        .clone()
+        .map(|x| x.borrow().child.clone())
+        .flatten();
     match children.as_ref() {
         Host(_, _props, _child) => {
             let mut fiber = FiberNode::new(children);

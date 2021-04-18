@@ -44,6 +44,11 @@ impl<'a> FunctionComponent for Button<'a> {
     }
 }
 
+// #[component]
+// fn Button(props, hooks) {
+
+// }
+
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     utils::set_panic_hook();
@@ -52,7 +57,7 @@ pub fn run() -> Result<(), JsValue> {
     let document = window.document().expect("should have a document on window");
     let body = document.body().expect("document should have a body");
 
-    let mut root = react::create_root(body.into());
+    let root = react::create_root(body.into());
     root.render(Host(
         "div",
         HashMap::new(),
@@ -88,7 +93,7 @@ pub fn run() -> Result<(), JsValue> {
 //         props![
 //             ("className", "test"),
 //             ("click", EventListener(|| { log("clicked") }))
-//         ],
+//             ],
 //         "Click meee!"
 //     ]
 // ]
